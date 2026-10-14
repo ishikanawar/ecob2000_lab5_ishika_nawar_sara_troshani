@@ -1,0 +1,309 @@
+---
+title: "ecob2000_lab5"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+1 + 1
+```
+
+You can add options to executable code like this
+
+```{r}
+#| echo: false
+2 * 2
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).
+
+```{r}
+setwd("~/Documents/R Projects/ecob2000_lab5")
+load("acs2021_recoded.Rdata")
+attach(acs2021)
+acs2021
+```
+
+```{r}
+summary(acs2021)
+```
+
+when sample too big, focus on a subset
+
+```{r}
+set.seed(12345)
+NN_obs <- length(acs2021$AGE)
+select1 <- (runif(NN_obs) < 0.50)
+smaller_data <- subset(acs2021, select1)
+```
+
+way to filter out some data: drop people who don’t have a college major coded (including all the people who didn’t get a college degree)
+
+```{r}
+acs_coll <- acs2021 %>% filter(DEGFIELD != "N/A")
+```
+
+an even heavier filter: Which would be people between 25 and 55 (so-called prime age), who are in the labor force, working full year, usually fulltime, who are Hispanic females with a college degree. If you start from a really big dataset, then you can drill far down.
+
+```{r}
+acs_subgroup <- acs2021 %>% filter((AGE >= 25) & (AGE <= 55) & 
+                                     (LABFORCE == 2) & 
+                                     (WKSWORK2 > 4) & 
+                                     (UHRSWORK >= 35) &
+                                     (Hispanic == 1) & 
+                                     (female == 1) & 
+                                     ((educ_college == 1) | (educ_advdeg == 1)))
+```
+
+```{r}
+table(DEGFIELDD)
+```
+
+```{r}
+print(DEGFIELDD)
+```
+
+```{r}
+compare_fields <- (   (acs2021$DEGFIELDD == "Civil Engineering") |
+                        (acs2021$DEGFIELDD == "Electrical Engineering") |
+                        (acs2021$DEGFIELDD == "Mechanical Engineering") |
+                        (acs2021$DEGFIELDD == "Computer Science") | 
+                        (acs2021$DEGFIELDD == "Psychology") |
+                        (acs2021$DEGFIELDD == "Political Science and Government") |
+                        (acs2021$DEGFIELDD == "Economics") |
+                        (acs2021$EDUC == "Grade 12")  )
+
+acs_compare_f <- acs2021 %>% filter((compare_fields & (AGE >= 25) & (AGE <= 65)) )
+
+acs_compare_f$DEGFIELDD <- fct_drop(acs_compare_f$DEGFIELDD)
+
+
+acs_compare_f$degree_recode <- recode_factor(acs_compare_f$DEGFIELDD, 
+                                             "Economics" = "Econ",
+                                             "Civil Engineering" = "Engr",
+                                             "Electrical Engineering" = "Engr",
+                                             "Mechanical Engineering" = "Engr",
+                                             "Computer Science" = "CS",
+                                             "Political Science and Government" = "PoliSci",
+                                             "Psychology" = "Psych",
+                                             .default = "HS")
+
+
+p_age_income <- ggplot(data = acs_compare_f,
+                       mapping = aes(x = AGE,
+                                     y = INCWAGE,
+                                     color = degree_recode,
+                                     fill = degree_recode))
+
+p_age_income + geom_smooth(aes(color=degree_recode, fill=degree_recode)) + 
+  scale_color_viridis_d(option = "inferno", end = 0.85) + 
+  scale_fill_viridis_d(option = "inferno", end = 0.65) + 
+  labs(x = "Age", y = "Income",color = "field") + guides(fill = "none")
+```
+
+above is some code that shows the relationship of major to earnings, among majors offered here,
+
+The transluscent parts are standard of error bands
+
+```{r}
+acs_compare_f$age_range <- cut(acs_compare_f$AGE, breaks = c(20.5, 30.5, 40.5, 50.5, 60.5, 70.5) )
+levels(acs_compare_f$age_range) <- c("20s","30s","40s","50s","60s")
+
+inc_by_agerange_degree <- acs_compare_f %>%
+  group_by(age_range,degree_recode) %>%
+  summarize(
+    avg = mean(INCWAGE, na.rm = TRUE),
+    stdev = sd(INCWAGE, na.rm = TRUE), 
+    n_obs = n()
+  ) 
+
+kable(inc_by_agerange_degree)
+```
+
+These do the same thing. The bottom one might be better:
+
+```{r}
+attach(acs2021)
+model_v1 <- lm(INCWAGE ~ AGE)
+detach()
+
+model_v2 <- lm(acs2021$INCWAGE ~ acs2021$AGE)
+
+model_v3 <- lm(INCWAGE ~ AGE, data = acs2021)
+```
+
+```{r}
+lm((INCWAGE ~ AGE + I(AGE^2) + I(AGE^3)) )
+```
+
+```{r}
+lm((INCWAGE ~ AGE + I(AGE^2) + I(educ_college) + I(female)))
+```
+
+```{r}
+age_peak <- coef(model_age2)["Age"] /
+  (2*coef(model_age2)["I{Age^2)"])
+
+age_peak
+```
+
+```{r}
+model <- lm(INCWAGE ~ AGE + I(AGE^2) + educ_college + female)
+b <- coef(model)
+
+peak_age <- -b["AGE"] / (2 * b["I(AGE^2)"])
+
+# Predicted wage at peak age for each group
+predict(model, newdata = data.frame(
+  AGE = peak_age,
+  educ_college = c(0, 1, 0, 1),
+  female = c(0, 0, 1, 1)
+))
+```
+
+```{r}
+library(car)
+m_unrestricted <- lm(INCWAGE ~ AGE + I(AGE^2) + I(AGE^3) + I(AGE^4) +
+                       educ_college + female)
+linearHypothesis(m_unrestricted, c("I(AGE^3) = 0", "I(AGE^4) = 0"))
+```
+
+```{r}
+peak_age
+```
+
+```{r}
+m_restricted <- lm(INCWAGE ~ AGE + I(AGE^2) + educ_college + female)
+
+age_grid <- data.frame(AGE = 18:65, educ_college = 0, female = 0)
+age_grid$quad    <- predict(m_restricted, age_grid)
+age_grid$quartic <- predict(m_unrestricted, age_grid)
+
+plot(age_grid$AGE, age_grid$quartic, type = "l", col = "red",
+     xlab = "Age", ylab = "Predicted wage")
+lines(age_grid$AGE, age_grid$quad)
+legend("topleft", c("Quadratic", "Quartic"), col = c("black", "red"), lty = 1)
+
+# Peak age under the quartic
+age_grid$AGE[which.max(age_grid$quartic)]
+```
+
+```{r}
+lm(INCWAGE ~ AGE + I(AGE^2) + I(AGE^3) + I(AGE^4) +
+     educ_college + female)
+```
+
+```{r}
+model <- lm(INCWAGE ~ AGE + I(AGE^2) + educ_college + female)
+summary(model)
+```
+
+```{r}
+model2 <- lm(INCWAGE ~ AGE + educ_college + educ_advdeg + female + Hispanic, data = df)
+summary(model2)
+```
+
+```{r}
+to_be_predicted1 <- data.frame(AGE = 35, female = 1, Hispanic = 1, educ_college = 1, educ_advdeg = 1)
+
+predict(model2, newdata = to_be_predicted1, interval = "confidence")
+```
+
+```{r}
+to_be_predicted2 <- data.frame(AGE = 35, female = 0, Hispanic = 1, educ_college = 1, educ_advdeg = 1)
+
+predict(model2, newdata = to_be_predicted2, interval = "confidence")
+```
+
+```{r}
+to_be_predicted3 <- data.frame(AGE = 35, female = 0, Hispanic = 0, educ_college = 1, educ_advdeg = 1)
+
+predict(model2, newdata = to_be_predicted3, interval = "confidence")
+```
+
+```{r}
+cps_pos <- subset(acs2021, !is.na(INCWAGE) & INCWAGE > 0)
+model_log <- lm(log(INCWAGE) ~ AGE + I(AGE^2) + educ_college + female, data = cps_pos)
+model_lvl <- lm(INCWAGE ~ AGE + I(AGE^2) + educ_college + female, data = cps_pos)
+```
+
+```{r}
+class(df)
+```
+
+```{r}
+install.packages("modelsummary")
+
+```
+
+```{r}
+library(modelsummary)
+```
+
+```{r}
+summary(model_lvl)
+summary(model_log)
+```
+
+```{r}
+library(ggplot2)
+
+# Grid of ages x groups
+grid <- expand.grid(AGE = 18:65, educ_college = c(0, 1), female = c(0, 1))
+
+# Level model: predictions are already in dollars
+grid$Level <- predict(model_lvl, newdata = grid)
+
+# Log model: exponentiate, with Duan's smearing so it estimates the MEAN
+smear <- mean(exp(residuals(model_log)))
+grid$Log <- exp(predict(model_log, newdata = grid)) * smear
+
+# Labels and long format for plotting
+grid$group <- paste(ifelse(grid$female == 1, "Female", "Male"),
+                    ifelse(grid$educ_college == 1, "College", "No college"),
+                    sep = ", ")
+
+grid_long <- reshape(grid, direction = "long",
+                     varying = c("Level", "Log"), v.names = "pred",
+                     timevar = "model", times = c("Level", "Log"))
+```
+
+```{r}
+ggplot(grid_long, aes(AGE, pred, color = model, linetype = model)) +
+  geom_line(linewidth = 1) +
+  facet_wrap(~ group) +
+  scale_y_continuous(labels = scales::dollar) +
+  labs(title = "Predicted wage by age: level vs. log model",
+       x = "Age", y = "Predicted wage", color = "Model", linetype = "Model") +
+  theme_minimal()
+```
+
+```{r}
+obs <- aggregate(INCWAGE ~ AGE + educ_college + female, data = cps_pos, FUN = mean)
+obs$group <- paste(ifelse(obs$female == 1, "Female", "Male"),
+                   ifelse(obs$educ_college == 1, "College", "No college"), sep = ", ")
+obs <- subset(obs, AGE %in% 18:65)
+
+ggplot(grid_long, aes(AGE, pred, color = model)) +
+  geom_point(data = obs, aes(AGE, INCWAGE), inherit.aes = FALSE,
+             color = "grey50", alpha = 0.6) +
+  geom_line(linewidth = 1) +
+  facet_wrap(~ group) +
+  scale_y_continuous(labels = scales::dollar) +
+  labs(title = "Predicted vs. observed mean wage by age",
+       x = "Age", y = "Wage") +
+  theme_minimal()
+```
+
+```{r}
+model_log_age <- lm((INCWAGE) ~ log(AGE) + log(AGE^2) + educ_college + female, data = cps_pos)
+summary(model_log_age)
+```
